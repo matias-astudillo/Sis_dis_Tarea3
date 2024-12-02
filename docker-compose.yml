@@ -1,0 +1,119 @@
+version: '3.8'
+services:
+  # scrapper de datos de waze
+  scrapper:
+    build: ./scrapper
+    depends_on:
+      - kafka
+    networks:
+      - mynetwork
+
+  # Spark para el procesamiento de datos
+  spark:
+    build: ./apache_spark
+    depends_on:
+      - kafka
+      - cassandra
+      - elasticsearch
+    environment:
+      - CASSANDRA_HOST=cassandra
+    links:
+      - cassandra
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.0'
+    networks:
+      - mynetwork
+  
+  # Contenedor para poder monitorear un tipo de alerta
+  monitoreo:
+    build: ./monitoreo
+    depends_on:
+      - cassandra
+    ports:
+      - "5000:5000"
+    networks:
+      - mynetwork
+
+  # Kafka como mensaje broker
+  kafka:
+    image: bitnami/kafka:latest
+    networks:
+      - mynetwork
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+      - elasticsearch
+
+  # Zookeeper para Kafka
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    networks:
+      - mynetwork
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    ports:
+      - "2181:2181"
+  
+  # Cassandra para almacenar datos 
+  cassandra:
+    image: cassandra:4.1.0
+    ports:
+      - "7000:7000"
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=test
+    networks:
+      - mynetwork
+  
+  # Contenedor para crear las tablas en cassandra
+  cassandra_start:
+    build: ./cassandra_start
+    depends_on:
+      - cassandra
+    environment:
+      CASSANDRA_HOST: cassandra
+    restart: "no"
+    networks:
+      - mynetwork
+
+  # Elasticsearch para almacenar datos
+  elasticsearch:
+    image: elasticsearch:8.15.2
+    networks:
+      - mynetwork
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+  # Interfaz gráfica para poder mostrar los datos almacenados en elasticsearch
+  kibana:
+    image: kibana:8.9.0
+    networks:
+      - mynetwork
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+networks:
+  mynetwork:
+    driver: bridge
+
